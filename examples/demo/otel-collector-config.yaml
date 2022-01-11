@@ -21,6 +21,7 @@ exporters:
 
 processors:
   batch:
+  seedingmetrics:
 
 extensions:
   health_check:
@@ -38,5 +39,5 @@ service:
       exporters: [logging, zipkin, jaeger]
     metrics:
       receivers: [otlp]
-      processors: [batch]
+      processors: [seedingmetrics,batch]
       exporters: [logging, prometheus]
