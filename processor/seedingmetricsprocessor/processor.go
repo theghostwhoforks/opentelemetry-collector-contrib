@@ -1,4 +1,4 @@
-package seedingmetricsprocessor
+package seedingmetricsprocessor // import "github.com/open-telemetry/opentelemetry-collector-contrib/processor/seedingmetricsprocessor"
 
 import (
 	"context"
