@@ -61,11 +61,30 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 				metrics := ilm.Metrics()
 				for l := 0; l < metrics.Len(); l++ {
 					metric := metrics.At(l)
-					fmt.Printf("Metric#%d DataType:%s, len: %d\n",
+					fmt.Printf("Metric#%d Name:%s, DataType:%s, len: %d\n",
 						l,
-						metric.DataType(), metrics.Len())
+						metric.Name(),
+						metric.DataType(),
+						metrics.Len())
 					if metric.DataType() == pdata.MetricDataTypeSum {
 						dps := metric.Sum().DataPoints()
+						if dps.Len() < 1 {
+							continue
+						}
+						firstDataPoint := dps.At(0)
+
+						newDataPoint := dps.AppendEmpty()
+						firstDataPoint.CopyTo(newDataPoint)
+
+						newDataPoint.SetIntVal(0)
+						duration := 60 * time.Second
+						newTimeStamp := pdata.NewTimestampFromTime(firstDataPoint.Timestamp().AsTime().Add(-duration))
+						newDataPoint.SetTimestamp(newTimeStamp)
+
+						dps.Sort(func(a, b pdata.NumberDataPoint) bool {
+							return a.IntVal() < b.IntVal()
+						})
+
 						for m := 0; m < dps.Len(); m++ {
 							dp := dps.At(m)
 							fmt.Printf("MetricDataPoints: Value: %d, Attributes: %+v, StartTimestamp: %s, Timestamp: %s\n",

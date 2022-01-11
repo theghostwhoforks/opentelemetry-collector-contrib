@@ -2,6 +2,16 @@ receivers:
   otlp:
     protocols:
       grpc:
+  prometheus/1:
+    config:
+      scrape_configs:
+        - job_name: "forge_apps_metrics"
+          scrape_interval: 15s
+          static_configs:
+            - targets: [ "host.docker.internal:9001" ]
+              labels:
+                instanceId: "instance-99"
+
 
 exporters:
   prometheus:
@@ -38,6 +48,6 @@ service:
       processors: [batch]
       exporters: [logging, zipkin, jaeger]
     metrics:
-      receivers: [otlp]
+      receivers: [prometheus/1]
       processors: [seedingmetrics,batch]
       exporters: [logging, prometheus]
