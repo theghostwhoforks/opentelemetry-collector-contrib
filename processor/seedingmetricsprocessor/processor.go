@@ -57,15 +57,14 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 			ilms := resourceMetrics.At(j).InstrumentationLibraryMetrics()
 			for k := 0; k < ilms.Len(); k++ {
 				ilm := ilms.At(k)
-				fmt.Printf("Name: %s", ilm.InstrumentationLibrary().Name())
 				metrics := ilm.Metrics()
+				fmt.Printf("Name: %s, len: %d", ilm.InstrumentationLibrary().Name(), metrics.Len())
 				for l := 0; l < metrics.Len(); l++ {
 					metric := metrics.At(l)
-					fmt.Printf("Metric#%d Name:%s, DataType:%s, len: %d\n",
+					fmt.Printf("Metric#%d Name:%s, DataType:%s\n",
 						l,
 						metric.Name(),
-						metric.DataType(),
-						metrics.Len())
+						metric.DataType())
 					if metric.DataType() == pdata.MetricDataTypeSum {
 						dps := metric.Sum().DataPoints()
 						if dps.Len() < 1 {
@@ -87,7 +86,8 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 
 						for m := 0; m < dps.Len(); m++ {
 							dp := dps.At(m)
-							fmt.Printf("MetricDataPoints: Value: %d, Attributes: %+v, StartTimestamp: %s, Timestamp: %s\n",
+							fmt.Printf("MetricDataPoints for metric:%s Value: %d, Attributes: %+v, StartTimestamp: %s, Timestamp: %s\n",
+								metric.Name(),
 								dp.IntVal(),
 								dp.Attributes().AsRaw(),
 								dp.StartTimestamp().AsTime().Format(time.UnixDate),
