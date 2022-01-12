@@ -92,20 +92,10 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 							// Only append zero value datapoint if notation combination appears for the first time
 							if processor.isFirstInstanceOfMetricNotation(notation) {
 								processor.sampledMetrics[notation] = true
-
-								newDataPoint := dps.AppendEmpty()
-								dp.CopyTo(newDataPoint)
-
-								newDataPoint.SetDoubleVal(float64(0))
-								duration := 60 * time.Second
-								newDataPoint.SetTimestamp(pdata.NewTimestampFromTime(dp.Timestamp().AsTime().Add(-duration)))
-								newDataPoint.SetStartTimestamp(pdata.NewTimestampFromTime(dp.StartTimestamp().AsTime().Add(-duration)))
+								dp.SetDoubleVal(float64(0))
+								dp.SetIntVal(0)
 							}
 						}
-
-						dps.Sort(func(a, b pdata.NumberDataPoint) bool {
-							return a.DoubleVal() < b.DoubleVal()
-						})
 
 						for m := 0; m < dps.Len(); m++ {
 							dp := dps.At(m)
@@ -128,6 +118,8 @@ func (processor *seedingMetricsProcessor) Capabilities() consumer.Capabilities {
 	return consumer.Capabilities{MutatesData: true}
 }
 
+// This check logic only work for certain attribtues struct for now.
+// We can make it configurable in the future.
 func (processor *seedingMetricsProcessor) buildMetricNotation(metricName string, dp pdata.NumberDataPoint) metricNotation {
 	rawAttributes := dp.Attributes().AsRaw()
 
