@@ -1,4 +1,4 @@
-// Copyright 2020, OpenTelemetry Authors
+// Copyright  The OpenTelemetry Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,14 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package handler // import "github.com/open-telemetry/opentelemetry-collector-contrib/exporter/awsemfexporter/handler"
+//go:generate mdatagen --experimental-gen metadata.yaml
 
-import "github.com/aws/aws-sdk-go/aws/request"
-
-// RequestStructuredLogHandler emf header
-var RequestStructuredLogHandler = request.NamedHandler{Name: "RequestStructuredLogHandler", Fn: AddStructuredLogHeader}
-
-// AddStructuredLogHeader emf log
-func AddStructuredLogHeader(req *request.Request) {
-	req.HTTPRequest.Header.Set("x-amzn-logs-format", "json/emf")
-}
+package couchbasereceiver // import "github.com/open-telemetry/opentelemetry-collector-contrib/receiver/couchbasereceiver"
