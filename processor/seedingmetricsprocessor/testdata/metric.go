@@ -322,7 +322,7 @@ func GenerateMetricsManyMetricsSameResource(metricsCount int) pdata.Metrics {
 	rs0ilm0 := md.ResourceMetrics().At(0).InstrumentationLibraryMetrics().At(0)
 	rs0ilm0.Metrics().EnsureCapacity(metricsCount)
 	for i := 0; i < metricsCount; i++ {
-		initSumIntMetric(rs0ilm0.Metrics().AppendEmpty())
+		initSumDoubleMetric(rs0ilm0.Metrics().AppendEmpty())
 	}
 	return md
 }

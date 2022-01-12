@@ -17,27 +17,41 @@ package seedingmetricsprocessor // import "github.com/open-telemetry/opentelemet
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/model/pdata"
 	"go.uber.org/zap"
-	"time"
 )
 
+type metricNotation struct {
+	metricName    string
+	appId         string
+	environmentId string
+	instanceId    string
+	userTier      string
+}
+
 type seedingMetricsProcessor struct {
-	logger       *zap.Logger
-	context      context.Context
-	config       *Config
-	nextConsumer consumer.Metrics
+	logger         *zap.Logger
+	context        context.Context
+	config         *Config
+	nextConsumer   consumer.Metrics
+	sampledMetrics map[metricNotation]bool
 }
 
 func newSeedingMetricsProcessor(ctx context.Context, cfg *Config, logger *zap.Logger, next consumer.Metrics) (*seedingMetricsProcessor, error) {
-	return &seedingMetricsProcessor{
+	processor := &seedingMetricsProcessor{
 		logger:       logger,
 		context:      ctx,
 		config:       cfg,
 		nextConsumer: next,
-	}, nil
+	}
+
+	processor.sampledMetrics = make(map[metricNotation]bool)
+
+	return processor, nil
 }
 
 // Start is invoked during service startup.
@@ -70,25 +84,34 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 						if dps.Len() < 1 {
 							continue
 						}
-						firstDataPoint := dps.At(0)
 
-						newDataPoint := dps.AppendEmpty()
-						firstDataPoint.CopyTo(newDataPoint)
+						for m := 0; m < dps.Len(); m++ {
+							dp := dps.At(m)
+							notation := processor.buildMetricNotation(metric.Name(), dp)
 
-						newDataPoint.SetIntVal(0)
-						duration := 60 * time.Second
-						newTimeStamp := pdata.NewTimestampFromTime(firstDataPoint.Timestamp().AsTime().Add(-duration))
-						newDataPoint.SetTimestamp(newTimeStamp)
+							// Only append zero value datapoint if notation combination appears for the first time
+							if processor.isFirstInstanceOfMetricNotation(notation) {
+								processor.sampledMetrics[notation] = true
+
+								newDataPoint := dps.AppendEmpty()
+								dp.CopyTo(newDataPoint)
+
+								newDataPoint.SetDoubleVal(float64(0))
+								duration := 60 * time.Second
+								newDataPoint.SetTimestamp(pdata.NewTimestampFromTime(dp.Timestamp().AsTime().Add(-duration)))
+								newDataPoint.SetStartTimestamp(pdata.NewTimestampFromTime(dp.StartTimestamp().AsTime().Add(-duration)))
+							}
+						}
 
 						dps.Sort(func(a, b pdata.NumberDataPoint) bool {
-							return a.IntVal() < b.IntVal()
+							return a.DoubleVal() < b.DoubleVal()
 						})
 
 						for m := 0; m < dps.Len(); m++ {
 							dp := dps.At(m)
-							fmt.Printf("MetricDataPoints for metric:%s Value: %d, Attributes: %+v, StartTimestamp: %s, Timestamp: %s\n",
-								metric.Name(),
+							fmt.Printf("MetricDataPoints: Value: %d:%f, Attributes: %+v, StartTimestamp: %s, Timestamp: %s\n",
 								dp.IntVal(),
+								dp.DoubleVal(),
 								dp.Attributes().AsRaw(),
 								dp.StartTimestamp().AsTime().Format(time.UnixDate),
 								dp.Timestamp().AsTime().Format(time.UnixDate))
@@ -103,4 +126,39 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 
 func (processor *seedingMetricsProcessor) Capabilities() consumer.Capabilities {
 	return consumer.Capabilities{MutatesData: true}
+}
+
+func (processor *seedingMetricsProcessor) buildMetricNotation(metricName string, dp pdata.NumberDataPoint) metricNotation {
+	rawAttributes := dp.Attributes().AsRaw()
+
+	appId, found := rawAttributes["appId"].(string)
+	if !found {
+		appId = ""
+	}
+
+	environmentId, found := rawAttributes["environmentId"].(string)
+	if !found {
+		environmentId = ""
+	}
+
+	instanceId, found := rawAttributes["instanceId"].(string)
+	if !found {
+		instanceId = ""
+	}
+
+	userTier, found := rawAttributes["userTier"].(string)
+	if !found {
+		userTier = ""
+	}
+
+	return metricNotation{
+		metricName:    metricName,
+		appId:         appId,
+		environmentId: environmentId,
+		instanceId:    instanceId,
+		userTier:      userTier}
+}
+
+func (processor *seedingMetricsProcessor) isFirstInstanceOfMetricNotation(notation metricNotation) bool {
+	return !processor.sampledMetrics[notation]
 }
