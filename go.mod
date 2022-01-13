@@ -68,10 +68,10 @@ require (
 	github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourcedetectionprocessor v0.42.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourceprocessor v0.42.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/processor/routingprocessor v0.42.0
+	github.com/open-telemetry/opentelemetry-collector-contrib/processor/seedingmetricsprocessor v0.42.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/processor/spanmetricsprocessor v0.42.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/processor/spanprocessor v0.42.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor v0.42.0
-	github.com/open-telemetry/opentelemetry-collector-contrib/processor/seedingmetricsprocessor v0.42.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/receiver/awscontainerinsightreceiver v0.42.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/receiver/awsecscontainermetricsreceiver v0.42.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/receiver/awsxrayreceiver v0.42.0
