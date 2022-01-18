@@ -16,7 +16,9 @@ package seedingmetricsprocessor // import "github.com/open-telemetry/opentelemet
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
+	"sort"
 	"time"
 
 	"go.opentelemetry.io/collector/component"
@@ -25,20 +27,12 @@ import (
 	"go.uber.org/zap"
 )
 
-type metricNotation struct {
-	metricName    string
-	appId         string
-	environmentId string
-	instanceId    string
-	userTier      string
-}
-
 type seedingMetricsProcessor struct {
 	logger         *zap.Logger
 	context        context.Context
 	config         *Config
 	nextConsumer   consumer.Metrics
-	sampledMetrics map[metricNotation]bool
+	sampledMetrics map[string]bool
 }
 
 func newSeedingMetricsProcessor(ctx context.Context, cfg *Config, logger *zap.Logger, next consumer.Metrics) (*seedingMetricsProcessor, error) {
@@ -49,7 +43,7 @@ func newSeedingMetricsProcessor(ctx context.Context, cfg *Config, logger *zap.Lo
 		nextConsumer: next,
 	}
 
-	processor.sampledMetrics = make(map[metricNotation]bool)
+	processor.sampledMetrics = make(map[string]bool)
 
 	return processor, nil
 }
@@ -87,11 +81,11 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 
 						for m := 0; m < dps.Len(); m++ {
 							dp := dps.At(m)
-							notation := processor.buildMetricNotation(metric.Name(), dp)
+							notationHash := asSha256(processor.buildMetricNotation(metric.Name(), dp))
 
 							// Only append zero value datapoint if notation combination appears for the first time
-							if processor.isFirstInstanceOfMetricNotation(notation) {
-								processor.sampledMetrics[notation] = true
+							if processor.isFirstInstanceOfMetricNotation(notationHash) {
+								processor.sampledMetrics[notationHash] = true
 								dp.SetDoubleVal(float64(0))
 								dp.SetIntVal(0)
 							}
@@ -114,43 +108,34 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 	return md, nil
 }
 
+func asSha256(input string) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(input)))
+}
+
 func (processor *seedingMetricsProcessor) Capabilities() consumer.Capabilities {
 	return consumer.Capabilities{MutatesData: true}
 }
 
 // This check logic only work for certain attribtues struct for now.
 // We can make it configurable in the future.
-func (processor *seedingMetricsProcessor) buildMetricNotation(metricName string, dp pdata.NumberDataPoint) metricNotation {
+func (processor *seedingMetricsProcessor) buildMetricNotation(metricName string, dp pdata.NumberDataPoint) string {
+	var pairs []string
+	result := "metricName=" + metricName
 	rawAttributes := dp.Attributes().AsRaw()
 
-	appId, found := rawAttributes["appId"].(string)
-	if !found {
-		appId = ""
+	for key, val := range rawAttributes {
+		pairs = append(pairs, key + "=" + fmt.Sprintf("%v", val))
 	}
 
-	environmentId, found := rawAttributes["environmentId"].(string)
-	if !found {
-		environmentId = ""
+	sort.SliceStable(pairs, func(i, j int) bool { return pairs[i] < pairs[j] })
+
+	for _, pair := range pairs {
+		result +=  "|" + pair
 	}
 
-	instanceId, found := rawAttributes["instanceId"].(string)
-	if !found {
-		instanceId = ""
-	}
-
-	userTier, found := rawAttributes["userTier"].(string)
-	if !found {
-		userTier = ""
-	}
-
-	return metricNotation{
-		metricName:    metricName,
-		appId:         appId,
-		environmentId: environmentId,
-		instanceId:    instanceId,
-		userTier:      userTier}
+	return result
 }
 
-func (processor *seedingMetricsProcessor) isFirstInstanceOfMetricNotation(notation metricNotation) bool {
+func (processor *seedingMetricsProcessor) isFirstInstanceOfMetricNotation(notation string) bool {
 	return !processor.sampledMetrics[notation]
 }
