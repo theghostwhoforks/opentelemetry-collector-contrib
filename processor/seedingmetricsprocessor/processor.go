@@ -16,7 +16,6 @@ package seedingmetricsprocessor // import "github.com/open-telemetry/opentelemet
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"sort"
 	"time"
@@ -81,7 +80,7 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 
 						for m := 0; m < dps.Len(); m++ {
 							dp := dps.At(m)
-							notationHash := asSha256(processor.buildMetricNotation(metric.Name(), dp))
+							notationHash := processor.buildMetricNotation(metric.Name(), dp)
 
 							// Only append zero value datapoint if notation combination appears for the first time
 							if processor.isFirstInstanceOfMetricNotation(notationHash) {
@@ -105,32 +104,32 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 			}
 		}
 	}
-	return md, nil
-}
 
-func asSha256(input string) string {
-	return fmt.Sprintf("%x", sha256.Sum256([]byte(input)))
+	for k, _ := range processor.sampledMetrics {
+		fmt.Printf("Metric notation for first instance :%v\n", k)
+	}
+
+	return md, nil
 }
 
 func (processor *seedingMetricsProcessor) Capabilities() consumer.Capabilities {
 	return consumer.Capabilities{MutatesData: true}
 }
 
-// This check logic only work for certain attribtues struct for now.
-// We can make it configurable in the future.
+// We can make it configurable in the future, if required.
 func (processor *seedingMetricsProcessor) buildMetricNotation(metricName string, dp pdata.NumberDataPoint) string {
 	var pairs []string
 	result := "metricName=" + metricName
 	rawAttributes := dp.Attributes().AsRaw()
 
 	for key, val := range rawAttributes {
-		pairs = append(pairs, key + "=" + fmt.Sprintf("%v", val))
+		pairs = append(pairs, key+"="+fmt.Sprintf("%v", val))
 	}
 
 	sort.SliceStable(pairs, func(i, j int) bool { return pairs[i] < pairs[j] })
 
 	for _, pair := range pairs {
-		result +=  "|" + pair
+		result += "|" + pair
 	}
 
 	return result
