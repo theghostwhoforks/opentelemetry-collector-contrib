@@ -16,14 +16,14 @@ package seedingmetricsprocessor // import "github.com/open-telemetry/opentelemet
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
-	"sort"
-	"time"
-
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/model/pdata"
 	"go.uber.org/zap"
+	"runtime"
+	"sort"
 )
 
 type seedingMetricsProcessor struct {
@@ -31,7 +31,7 @@ type seedingMetricsProcessor struct {
 	context        context.Context
 	config         *Config
 	nextConsumer   consumer.Metrics
-	sampledMetrics map[string]bool
+	seenMetricsMap map[string]struct{}
 }
 
 func newSeedingMetricsProcessor(ctx context.Context, cfg *Config, logger *zap.Logger, next consumer.Metrics) (*seedingMetricsProcessor, error) {
@@ -42,7 +42,7 @@ func newSeedingMetricsProcessor(ctx context.Context, cfg *Config, logger *zap.Lo
 		nextConsumer: next,
 	}
 
-	processor.sampledMetrics = make(map[string]bool)
+	processor.seenMetricsMap = make(map[string]struct{})
 
 	return processor, nil
 }
@@ -57,6 +57,9 @@ func (processor *seedingMetricsProcessor) ShutDown(context.Context) error {
 }
 
 func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md pdata.Metrics) (pdata.Metrics, error) {
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+
 	fmt.Printf("Metric Count: %d, Datapoint count: %d\n", md.MetricCount(), md.DataPointCount())
 	for i := 0; i < md.ResourceMetrics().Len(); i++ {
 		resourceMetrics := md.ResourceMetrics()
@@ -80,24 +83,16 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 
 						for m := 0; m < dps.Len(); m++ {
 							dp := dps.At(m)
-							notationHash := processor.buildMetricNotation(metric.Name(), dp)
+
+							notation, notationHash := processor.buildMetricNotation(metric.Name(), dp)
 
 							// Only append zero value datapoint if notation combination appears for the first time
 							if processor.isFirstInstanceOfMetricNotation(notationHash) {
-								processor.sampledMetrics[notationHash] = true
+								fmt.Printf("Storing notation :%s: with hash :%s: in seen map\n", notation, notationHash)
+								processor.seenMetricsMap[notationHash] = struct{}{}
 								dp.SetDoubleVal(float64(0))
 								dp.SetIntVal(0)
 							}
-						}
-
-						for m := 0; m < dps.Len(); m++ {
-							dp := dps.At(m)
-							fmt.Printf("MetricDataPoints: Value: %d:%f, Attributes: %+v, StartTimestamp: %s, Timestamp: %s\n",
-								dp.IntVal(),
-								dp.DoubleVal(),
-								dp.Attributes().AsRaw(),
-								dp.StartTimestamp().AsTime().Format(time.UnixDate),
-								dp.Timestamp().AsTime().Format(time.UnixDate))
 						}
 					}
 				}
@@ -105,10 +100,9 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 		}
 	}
 
-	for k, _ := range processor.sampledMetrics {
-		fmt.Printf("Metric notation for first instance :%v\n", k)
-	}
-
+	fmt.Printf("Memory Usage after processing metrics\n")
+	runtime.ReadMemStats(&after)
+	PrintMemUsage(before, after)
 	return md, nil
 }
 
@@ -117,7 +111,7 @@ func (processor *seedingMetricsProcessor) Capabilities() consumer.Capabilities {
 }
 
 // We can make it configurable in the future, if required.
-func (processor *seedingMetricsProcessor) buildMetricNotation(metricName string, dp pdata.NumberDataPoint) string {
+func (processor *seedingMetricsProcessor) buildMetricNotation(metricName string, dp pdata.NumberDataPoint) (string, string) {
 	var pairs []string
 	result := "metricName=" + metricName
 	rawAttributes := dp.Attributes().AsRaw()
@@ -132,9 +126,21 @@ func (processor *seedingMetricsProcessor) buildMetricNotation(metricName string,
 		result += "|" + pair
 	}
 
-	return result
+	sum256 := sha256.Sum256([]byte(result))
+	return result, fmt.Sprintf("%x", sum256)
 }
 
 func (processor *seedingMetricsProcessor) isFirstInstanceOfMetricNotation(notation string) bool {
-	return !processor.sampledMetrics[notation]
+	_, notationKeyExists := processor.seenMetricsMap[notation]
+	return !notationKeyExists
+}
+
+func toMb(mem uint64) uint64 { return mem / 1024 / 1024 }
+
+func PrintMemUsage(before, after runtime.MemStats) {
+	// For info on each, see: https://golang.org/pkg/runtime/#MemStats
+	fmt.Printf("\tTotalAlloc = %v MiB", toMb(after.TotalAlloc-before.TotalAlloc))
+	fmt.Printf("\tHeapAlloc = %v MiB", toMb(after.HeapAlloc-before.HeapAlloc))
+	fmt.Printf("\tSys = %v MiB", toMb(after.Sys-before.Sys))
+	fmt.Printf("\tGc Cycles Run between = %v\n", after.NumGC-before.NumGC)
 }
