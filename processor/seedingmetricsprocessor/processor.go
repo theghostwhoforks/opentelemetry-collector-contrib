@@ -18,6 +18,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"os"
 	"runtime"
 	"sort"
 	"time"
@@ -162,7 +163,9 @@ func newPool() *redis.Pool {
 		IdleTimeout: 240 * time.Second,
 
 		Dial: func() (redis.Conn, error) {
-			c, err := redis.Dial("tcp", "host.docker.internal:6379")
+			redisHost := os.Getenv("REDISX_SIDECAR_MAP_HOST") + ":" + os.Getenv("REDISX_SIDECAR_MAP_PORT")
+			fmt.Printf("Redis host is %s", redisHost)
+			c, err := redis.Dial("tcp", redisHost)
 			if err != nil {
 					return nil, err
 			}
