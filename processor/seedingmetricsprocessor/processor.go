@@ -18,12 +18,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"runtime"
+	"sort"
+	"time"
+
+	"github.com/gomodule/redigo/redis"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/model/pdata"
 	"go.uber.org/zap"
-	"runtime"
-	"sort"
 )
 
 type seedingMetricsProcessor struct {
@@ -31,7 +34,7 @@ type seedingMetricsProcessor struct {
 	context        context.Context
 	config         *Config
 	nextConsumer   consumer.Metrics
-	seenMetricsMap map[string]struct{}
+	redisPool      *redis.Pool
 }
 
 func newSeedingMetricsProcessor(ctx context.Context, cfg *Config, logger *zap.Logger, next consumer.Metrics) (*seedingMetricsProcessor, error) {
@@ -42,17 +45,19 @@ func newSeedingMetricsProcessor(ctx context.Context, cfg *Config, logger *zap.Lo
 		nextConsumer: next,
 	}
 
-	processor.seenMetricsMap = make(map[string]struct{})
+	processor.redisPool = newPool()
 
 	return processor, nil
 }
 
 // Start is invoked during service startup.
 func (processor *seedingMetricsProcessor) Start(context.Context, component.Host) error {
+	fmt.Println("Starting seeding metrics processor")
 	return nil
 }
 
 func (processor *seedingMetricsProcessor) ShutDown(context.Context) error {
+	fmt.Println("Shuting down seeding metrics processor")
 	return nil
 }
 
@@ -88,8 +93,11 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 
 							// Only append zero value datapoint if notation combination appears for the first time
 							if processor.isFirstInstanceOfMetricNotation(notationHash) {
-								fmt.Printf("Storing notation :%s: with hash :%s: in seen map\n", notation, notationHash)
-								processor.seenMetricsMap[notationHash] = struct{}{}
+								fmt.Printf("Storing notation :%s: with hash :%s: into redis...\n", notation, notationHash)
+								setErr := processor.set(notationHash, "")
+								if setErr != nil {
+									fmt.Printf("%v\n", setErr)
+								}
 								dp.SetDoubleVal(float64(0))
 								dp.SetIntVal(0)
 							}
@@ -131,8 +139,11 @@ func (processor *seedingMetricsProcessor) buildMetricNotation(metricName string,
 }
 
 func (processor *seedingMetricsProcessor) isFirstInstanceOfMetricNotation(notation string) bool {
-	_, notationKeyExists := processor.seenMetricsMap[notation]
-	return !notationKeyExists
+	exists, checkErr := processor.exists(notation)
+	if checkErr != nil {
+		fmt.Printf("%v\n", checkErr)
+	}
+	return !exists
 }
 
 func toMb(mem uint64) uint64 { return mem / 1024 / 1024 }
@@ -143,4 +154,48 @@ func PrintMemUsage(before, after runtime.MemStats) {
 	fmt.Printf("\tHeapAlloc = %v MiB", toMb(after.HeapAlloc-before.HeapAlloc))
 	fmt.Printf("\tSys = %v MiB", toMb(after.Sys-before.Sys))
 	fmt.Printf("\tGc Cycles Run between = %v\n", after.NumGC-before.NumGC)
+}
+
+func newPool() *redis.Pool {
+	return &redis.Pool{
+		MaxIdle:     3,
+		IdleTimeout: 240 * time.Second,
+
+		Dial: func() (redis.Conn, error) {
+			c, err := redis.Dial("tcp", "host.docker.internal:6379")
+			if err != nil {
+					return nil, err
+			}
+			return c, err
+		},
+
+		TestOnBorrow: func(c redis.Conn, t time.Time) error {
+			_, err := c.Do("PING")
+			return err
+		},
+	}
+}
+
+func (processor *seedingMetricsProcessor) set(key string, value string) error {
+
+	conn := processor.redisPool.Get()
+	defer conn.Close()
+
+	_, err := conn.Do("SET", key, value)
+	if err != nil {
+		return fmt.Errorf("error setting key %s: %v", key, err)
+	}
+	return err
+}
+
+func (processor *seedingMetricsProcessor) exists(key string) (bool, error) {
+
+	conn := processor.redisPool.Get()
+	defer conn.Close()
+
+	ok, err := redis.Bool(conn.Do("EXISTS", key))
+	if err != nil {
+		return ok, fmt.Errorf("error checking if key %s exists: %v", key, err)
+	}
+	return ok, err
 }

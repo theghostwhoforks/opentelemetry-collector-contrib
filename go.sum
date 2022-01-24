@@ -1012,6 +1012,8 @@ github.com/golangci/misspell v0.3.5/go.mod h1:dEbvlSfYbMQDtrpRMQU675gSDLDNa8sCPP
 github.com/golangci/revgrep v0.0.0-20210208091834-cd28932614b5/go.mod h1:LK+zW4MpyytAWQRz0M4xnzEk50lSvqDQKfx304apFkY=
 github.com/golangci/unconvert v0.0.0-20180507085042-28b1c447d1f4/go.mod h1:Izgrg8RkN3rCIMLGE9CyYmU9pY2Jer6DgANEnZ/L/cQ=
 github.com/gomodule/redigo v1.7.1-0.20190724094224-574c33c3df38/go.mod h1:B4C85qUVwatsJoIUNIfCRsp7qO0iAmpGFZ4EELWSbC4=
+github.com/gomodule/redigo v1.8.8 h1:f6cXq6RRfiyrOJEV7p3JhLDlmawGBVBBP1MggY8Mo4E=
+github.com/gomodule/redigo v1.8.8/go.mod h1:7ArFNvsTjH8GMMzB4uy1snslv2BwmginuMs06a1uzZE=
 github.com/google/addlicense v0.0.0-20190510175307-22550fa7c1b0/go.mod h1:QtPG26W17m+OIQgE6gQ24gC1M6pUaMBAbFrTIDtwG/E=
 github.com/google/addlicense v0.0.0-20200906110928-a0294312aa76/go.mod h1:EMjYTRimagHs1FwlIqKyX3wAM0u3rA+McvlIIWmSamA=
 github.com/google/btree v0.0.0-20180813153112-4030bb1f1f0c/go.mod h1:lNA+9X1NB3Zf8V7Ke586lFgjr2dZNuvo3lPJSGZ5JPQ=
