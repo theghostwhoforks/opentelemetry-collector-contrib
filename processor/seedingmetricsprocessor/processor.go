@@ -25,6 +25,7 @@ import (
 	"go.uber.org/zap"
 	"runtime"
 	"sort"
+	"strings"
 )
 
 type seedingMetricsProcessor struct {
@@ -84,10 +85,10 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 				fmt.Printf("Name: %s, len: %d", ilm.InstrumentationLibrary().Name(), metrics.Len())
 				for l := 0; l < metrics.Len(); l++ {
 					metric := metrics.At(l)
-					//fmt.Printf("Metric#%d Name:%s, DataType:%s\n",
-					//	l,
-					//	metric.Name(),
-					//	metric.DataType())
+					fmt.Printf("Metric#%d Name:%s, DataType:%s\n",
+						l,
+						metric.Name(),
+						metric.DataType())
 					if metric.DataType() == pdata.MetricDataTypeSum {
 						dps := metric.Sum().DataPoints()
 						if dps.Len() < 1 {
@@ -97,11 +98,11 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 						for m := 0; m < dps.Len(); m++ {
 							dp := dps.At(m)
 
-							_, notationHash := processor.buildMetricNotation(metric.Name(), dp)
+							notation, notationHash := processor.buildMetricNotation(metric.Name(), dp)
 
 							// Only append zero value datapoint if notation combination appears for the first time
 							if processor.isFirstInstanceOfMetricNotation(notationHash) {
-								//fmt.Printf("Storing notation :%s: with hash :%s: in seen map\n", notation, notationHash)
+								fmt.Printf("Storing notation :%s: with hash :%s: in seen map\n", notation, notationHash)
 								processor.seenMetricsMap[notationHash] = struct{}{}
 
 								err := processor.dbClient.Set([]byte(notationHash), []byte("1"), pebble.Sync)
@@ -131,19 +132,22 @@ func (processor *seedingMetricsProcessor) Capabilities() consumer.Capabilities {
 
 // We can make it configurable in the future, if required.
 func (processor *seedingMetricsProcessor) buildMetricNotation(metricName string, dp pdata.NumberDataPoint) (string, string) {
-	var pairs []string
-	result := "metricName=" + metricName
+	var keys, pairs []string
+
+	pairs = append(pairs, "metricName="+metricName)
 	rawAttributes := dp.Attributes().AsRaw()
 
-	for key, val := range rawAttributes {
-		pairs = append(pairs, key+"="+fmt.Sprintf("%v", val))
+	for key, _ := range rawAttributes {
+		keys = append(keys, key)
 	}
 
-	sort.SliceStable(pairs, func(i, j int) bool { return pairs[i] < pairs[j] })
+	sort.Strings(keys)
 
-	for _, pair := range pairs {
-		result += "|" + pair
+	for _, key := range keys {
+		pairs = append(pairs, fmt.Sprintf("%s=%v", key, rawAttributes[key]))
 	}
+
+	result := strings.Join(pairs, "|")
 
 	sum256 := sha256.Sum256([]byte(result))
 	return result, fmt.Sprintf("%x", sum256)
@@ -161,7 +165,7 @@ func (processor *seedingMetricsProcessor) isFirstInstanceOfMetricNotation(notati
 	}
 
 	processor.logger.Info("Successful cache hit.", zap.String("key", notationHash))
-	return !false
+	return false
 }
 
 func toMb(mem uint64) uint64 { return mem / 1024 / 1024 }

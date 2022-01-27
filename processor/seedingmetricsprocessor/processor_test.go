@@ -44,7 +44,7 @@ func TestSeedingMetricsProcessor_ProcessMetrics(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, processor)
 
-	metrics := testdata.GenerateMetricsManyMetricsSameResource(1_000_000)
+	metrics := testdata.GenerateMetricsManyMetricsSameResource(1_000_0)
 	err = processor.ConsumeMetrics(backgroundContext, metrics)
 
 	assert.Nil(t, err)
