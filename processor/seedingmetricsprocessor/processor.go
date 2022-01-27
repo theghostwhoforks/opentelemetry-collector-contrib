@@ -18,6 +18,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"github.com/cockroachdb/pebble"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/model/pdata"
@@ -32,6 +33,7 @@ type seedingMetricsProcessor struct {
 	config         *Config
 	nextConsumer   consumer.Metrics
 	seenMetricsMap map[string]struct{}
+	dbClient       *pebble.DB
 }
 
 func newSeedingMetricsProcessor(ctx context.Context, cfg *Config, logger *zap.Logger, next consumer.Metrics) (*seedingMetricsProcessor, error) {
@@ -49,18 +51,29 @@ func newSeedingMetricsProcessor(ctx context.Context, cfg *Config, logger *zap.Lo
 
 // Start is invoked during service startup.
 func (processor *seedingMetricsProcessor) Start(context.Context, component.Host) error {
+
+	//dir, _ := ioutil.TempDir(".", "seen-metrics-processor-*")
+
+	db, err := pebble.Open("./seen-metrics-processor-105033119", &pebble.Options{})
+	if err != nil {
+		processor.logger.Fatal("error opening the database")
+		return err
+	}
+
+	processor.dbClient = db
+
 	return nil
 }
 
 func (processor *seedingMetricsProcessor) ShutDown(context.Context) error {
-	return nil
+	return processor.dbClient.Close()
 }
 
 func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md pdata.Metrics) (pdata.Metrics, error) {
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
 
-	fmt.Printf("Metric Count: %d, Datapoint count: %d\n", md.MetricCount(), md.DataPointCount())
+	//fmt.Printf("Metric Count: %d, Datapoint count: %d\n", md.MetricCount(), md.DataPointCount())
 	for i := 0; i < md.ResourceMetrics().Len(); i++ {
 		resourceMetrics := md.ResourceMetrics()
 		for j := 0; j < resourceMetrics.Len(); j++ {
@@ -71,10 +84,10 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 				fmt.Printf("Name: %s, len: %d", ilm.InstrumentationLibrary().Name(), metrics.Len())
 				for l := 0; l < metrics.Len(); l++ {
 					metric := metrics.At(l)
-					fmt.Printf("Metric#%d Name:%s, DataType:%s\n",
-						l,
-						metric.Name(),
-						metric.DataType())
+					//fmt.Printf("Metric#%d Name:%s, DataType:%s\n",
+					//	l,
+					//	metric.Name(),
+					//	metric.DataType())
 					if metric.DataType() == pdata.MetricDataTypeSum {
 						dps := metric.Sum().DataPoints()
 						if dps.Len() < 1 {
@@ -84,12 +97,18 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 						for m := 0; m < dps.Len(); m++ {
 							dp := dps.At(m)
 
-							notation, notationHash := processor.buildMetricNotation(metric.Name(), dp)
+							_, notationHash := processor.buildMetricNotation(metric.Name(), dp)
 
 							// Only append zero value datapoint if notation combination appears for the first time
 							if processor.isFirstInstanceOfMetricNotation(notationHash) {
-								fmt.Printf("Storing notation :%s: with hash :%s: in seen map\n", notation, notationHash)
+								//fmt.Printf("Storing notation :%s: with hash :%s: in seen map\n", notation, notationHash)
 								processor.seenMetricsMap[notationHash] = struct{}{}
+
+								err := processor.dbClient.Set([]byte(notationHash), []byte("1"), pebble.Sync)
+								if err != nil {
+									processor.logger.Error("error writing key to dbClient",
+										zap.String("key", notationHash), zap.Error(err))
+								}
 								dp.SetDoubleVal(float64(0))
 								dp.SetIntVal(0)
 							}
@@ -100,7 +119,7 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 		}
 	}
 
-	fmt.Printf("Memory Usage after processing metrics\n")
+	processor.logger.Info("Memory Usage after processing metrics\n")
 	runtime.ReadMemStats(&after)
 	PrintMemUsage(before, after)
 	return md, nil
@@ -130,9 +149,19 @@ func (processor *seedingMetricsProcessor) buildMetricNotation(metricName string,
 	return result, fmt.Sprintf("%x", sum256)
 }
 
-func (processor *seedingMetricsProcessor) isFirstInstanceOfMetricNotation(notation string) bool {
-	_, notationKeyExists := processor.seenMetricsMap[notation]
-	return !notationKeyExists
+func (processor *seedingMetricsProcessor) isFirstInstanceOfMetricNotation(notationHash string) bool {
+	_, closer, dbClientGetErr := processor.dbClient.Get([]byte(notationHash))
+	if dbClientGetErr == pebble.ErrNotFound {
+		processor.logger.Info("Key not found in cache.", zap.String("key", notationHash))
+		return true
+	}
+
+	if err := closer.Close(); err != nil {
+		processor.logger.Error("Error closing the reader", zap.Error(err))
+	}
+
+	processor.logger.Info("Successful cache hit.", zap.String("key", notationHash))
+	return !false
 }
 
 func toMb(mem uint64) uint64 { return mem / 1024 / 1024 }
