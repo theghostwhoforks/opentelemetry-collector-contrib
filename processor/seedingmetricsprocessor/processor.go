@@ -64,6 +64,7 @@ func (processor *seedingMetricsProcessor) ShutDown(context.Context) error {
 
 func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md pdata.Metrics) (pdata.Metrics, error) {
 	var before, after runtime.MemStats
+	start := time.Now()
 	runtime.ReadMemStats(&before)
 
 	fmt.Printf("Metric Count: %d, Datapoint count: %d\n", md.MetricCount(), md.DataPointCount())
@@ -82,6 +83,8 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 						metric.Name(),
 						metric.DataType())
 					if metric.DataType() == pdata.MetricDataTypeSum {
+						conn := processor.redisPool.Get()
+						defer conn.Close()
 						dps := metric.Sum().DataPoints()
 						if dps.Len() < 1 {
 							continue
@@ -93,11 +96,15 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 							notation, notationHash := processor.buildMetricNotation(metric.Name(), dp)
 
 							// Only append zero value datapoint if notation combination appears for the first time
-							if processor.isFirstInstanceOfMetricNotation(notationHash) {
+							_, err := redis.String(conn.Do("GET", notationHash))
+							if err != nil && err != redis.ErrNil {
+								fmt.Printf("error checking key existence %v", err)
+							}
+							if err == redis.ErrNil {
 								fmt.Printf("Storing notation :%s: with hash :%s: into redis...\n", notation, notationHash)
-								setErr := processor.set(notationHash, "")
-								if setErr != nil {
-									fmt.Printf("%v\n", setErr)
+								_, err := conn.Do("SET", notationHash, "")
+								if err != nil {
+									fmt.Printf("error setting key %s: %v", notationHash, err)
 								}
 								dp.SetDoubleVal(float64(0))
 								dp.SetIntVal(0)
@@ -109,6 +116,8 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 		}
 	}
 
+	elapsed := time.Since(start)
+	fmt.Printf("Process metrics took about %s\n", elapsed)
 	fmt.Printf("Memory Usage after processing metrics\n")
 	runtime.ReadMemStats(&after)
 	PrintMemUsage(before, after)
@@ -137,14 +146,6 @@ func (processor *seedingMetricsProcessor) buildMetricNotation(metricName string,
 
 	sum256 := sha256.Sum256([]byte(result))
 	return result, fmt.Sprintf("%x", sum256)
-}
-
-func (processor *seedingMetricsProcessor) isFirstInstanceOfMetricNotation(notation string) bool {
-	exists, checkErr := processor.exists(notation)
-	if checkErr != nil {
-		fmt.Printf("%v\n", checkErr)
-	}
-	return !exists
 }
 
 func toMb(mem uint64) uint64 { return mem / 1024 / 1024 }
@@ -177,28 +178,4 @@ func newPool() *redis.Pool {
 			return err
 		},
 	}
-}
-
-func (processor *seedingMetricsProcessor) set(key string, value string) error {
-
-	conn := processor.redisPool.Get()
-	defer conn.Close()
-
-	_, err := conn.Do("SET", key, value)
-	if err != nil {
-		return fmt.Errorf("error setting key %s: %v", key, err)
-	}
-	return err
-}
-
-func (processor *seedingMetricsProcessor) exists(key string) (bool, error) {
-
-	conn := processor.redisPool.Get()
-	defer conn.Close()
-
-	ok, err := redis.Bool(conn.Do("EXISTS", key))
-	if err != nil {
-		return ok, fmt.Errorf("error checking if key %s exists: %v", key, err)
-	}
-	return ok, err
 }
