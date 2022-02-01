@@ -18,14 +18,17 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"os"
+	"runtime"
+	"sort"
+	"strings"
+	"time"
+
 	"github.com/cockroachdb/pebble"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/model/pdata"
 	"go.uber.org/zap"
-	"runtime"
-	"sort"
-	"strings"
 )
 
 type seedingMetricsProcessor struct {
@@ -55,7 +58,11 @@ func (processor *seedingMetricsProcessor) Start(context.Context, component.Host)
 
 	//dir, _ := ioutil.TempDir(".", "seen-metrics-processor-*")
 
-	db, err := pebble.Open("./seen-metrics-processor-105033119", &pebble.Options{})
+	// Env vars defined in service descriptor of XIS
+	filePath := os.Getenv("SERVICE_VOLUME_PATH") + "/" + os.Getenv("SIDECAR_MAP_FILE_NAME")
+	fmt.Printf("PeppleDB file path is %s\n", filePath)
+
+	db, err := pebble.Open(filePath, &pebble.Options{})
 	if err != nil {
 		processor.logger.Fatal("error opening the database")
 		return err
@@ -73,6 +80,7 @@ func (processor *seedingMetricsProcessor) ShutDown(context.Context) error {
 func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md pdata.Metrics) (pdata.Metrics, error) {
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
+	startTime := time.Now()
 
 	//fmt.Printf("Metric Count: %d, Datapoint count: %d\n", md.MetricCount(), md.DataPointCount())
 	for i := 0; i < md.ResourceMetrics().Len(); i++ {
@@ -119,6 +127,9 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 			}
 		}
 	}
+
+	elapsed := time.Since(startTime)
+	fmt.Printf("Processing metrics took %s", elapsed)
 
 	processor.logger.Info("Memory Usage after processing metrics\n")
 	runtime.ReadMemStats(&after)
