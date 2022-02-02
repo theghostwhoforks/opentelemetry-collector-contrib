@@ -100,6 +100,9 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 							if err != nil && err != redis.ErrNil {
 								fmt.Printf("error checking key existence %v", err)
 							}
+							if err == nil {
+								fmt.Printf("Cache hit for hashkey %s\n", notationHash)
+							}
 							if err == redis.ErrNil {
 								fmt.Printf("Storing notation :%s: with hash :%s: into redis...\n", notation, notationHash)
 								_, err := conn.Do("SET", notationHash, "")
