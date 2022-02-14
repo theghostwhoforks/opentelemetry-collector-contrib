@@ -36,7 +36,6 @@ type seedingMetricsProcessor struct {
 	context        context.Context
 	config         *Config
 	nextConsumer   consumer.Metrics
-	seenMetricsMap map[string]struct{}
 	dbClient       *pebble.DB
 }
 
@@ -47,8 +46,6 @@ func newSeedingMetricsProcessor(ctx context.Context, cfg *Config, logger *zap.Lo
 		config:       cfg,
 		nextConsumer: next,
 	}
-
-	processor.seenMetricsMap = make(map[string]struct{})
 
 	return processor, nil
 }
@@ -111,9 +108,8 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 							// Only append zero value datapoint if notation combination appears for the first time
 							if processor.isFirstInstanceOfMetricNotation(notationHash) {
 								fmt.Printf("Storing notation :%s: with hash :%s: in seen map\n", notation, notationHash)
-								processor.seenMetricsMap[notationHash] = struct{}{}
 
-								err := processor.dbClient.Set([]byte(notationHash), []byte("1"), pebble.Sync)
+								err := processor.dbClient.Set([]byte(notationHash), []byte("1"), pebble.NoSync)
 								if err != nil {
 									processor.logger.Error("error writing key to dbClient",
 										zap.String("key", notationHash), zap.Error(err))
