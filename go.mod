@@ -68,7 +68,7 @@ require (
 	github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourcedetectionprocessor v0.42.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourceprocessor v0.42.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/processor/routingprocessor v0.42.0
-	github.com/open-telemetry/opentelemetry-collector-contrib/processor/seedingmetricsprocessor v0.42.0
+	github.com/open-telemetry/opentelemetry-collector-contrib/processor/seedingmetricsprocessor v0.39.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/processor/spanmetricsprocessor v0.42.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/processor/spanprocessor v0.42.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/processor/tailsamplingprocessor v0.42.0
@@ -179,7 +179,7 @@ require (
 	github.com/cncf/xds/go v0.0.0-20211130200136-a8f946100490 // indirect
 	github.com/cockroachdb/errors v1.8.1 // indirect
 	github.com/cockroachdb/logtags v0.0.0-20190617123548-eb05cc24525f // indirect
-	github.com/cockroachdb/pebble v0.0.0-20220124214647-060753c8d4c7 // indirect
+	github.com/cockroachdb/pebble v0.0.0-20220222202601-2c5224581900 // indirect
 	github.com/cockroachdb/redact v1.0.8 // indirect
 	github.com/cockroachdb/sentry-go v0.6.1-cockroachdb.2 // indirect
 	github.com/containerd/console v1.0.2 // indirect
