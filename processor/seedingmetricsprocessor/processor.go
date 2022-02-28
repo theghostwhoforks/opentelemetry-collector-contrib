@@ -37,6 +37,8 @@ type seedingMetricsProcessor struct {
 	config         *Config
 	nextConsumer   consumer.Metrics
 	dbClient       *pebble.DB
+	targetAppIdsMap map[string]bool
+	ignoredAppIdsMap map[string]bool
 }
 
 func newSeedingMetricsProcessor(ctx context.Context, cfg *Config, logger *zap.Logger, next consumer.Metrics) (*seedingMetricsProcessor, error) {
@@ -52,11 +54,9 @@ func newSeedingMetricsProcessor(ctx context.Context, cfg *Config, logger *zap.Lo
 
 // Start is invoked during service startup.
 func (processor *seedingMetricsProcessor) Start(context.Context, component.Host) error {
-
-	//dir, _ := ioutil.TempDir(".", "seen-metrics-processor-*")
-
+	dbFileName := processor.config.DbFileName
 	// Env vars defined in service descriptor of XIS
-	filePath := os.Getenv("SERVICE_VOLUME_PATH") + "/" + os.Getenv("SIDECAR_MAP_FILE_NAME")
+	filePath := fmt.Sprintf("%s/%s", os.Getenv("SERVICE_VOLUME_PATH"), dbFileName)
 	fmt.Printf("PeppleDB file path is %s\n", filePath)
 
 	db, err := pebble.Open(filePath, &pebble.Options{})
@@ -67,6 +67,18 @@ func (processor *seedingMetricsProcessor) Start(context.Context, component.Host)
 
 	processor.dbClient = db
 
+	// Create map for target and ignored appIDs
+	processor.targetAppIdsMap = map[string]bool{}
+	processor.ignoredAppIdsMap = map[string]bool{}
+
+	for i := 0; i < len(processor.config.TargetAppIds); i++ {
+		processor.targetAppIdsMap[processor.config.TargetAppIds[i]] = true
+	}
+
+	for j := 0; j < len(processor.config.IgnoredAppIds); j++ {
+		processor.ignoredAppIdsMap[processor.config.IgnoredAppIds[j]] = true
+	}
+
 	return nil
 }
 
@@ -75,11 +87,8 @@ func (processor *seedingMetricsProcessor) ShutDown(context.Context) error {
 }
 
 func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md pdata.Metrics) (pdata.Metrics, error) {
-	var before, after runtime.MemStats
-	runtime.ReadMemStats(&before)
 	startTime := time.Now()
 
-	//fmt.Printf("Metric Count: %d, Datapoint count: %d\n", md.MetricCount(), md.DataPointCount())
 	for i := 0; i < md.ResourceMetrics().Len(); i++ {
 		resourceMetrics := md.ResourceMetrics()
 		for j := 0; j < resourceMetrics.Len(); j++ {
@@ -87,54 +96,68 @@ func (processor *seedingMetricsProcessor) processMetrics(_ context.Context, md p
 			for k := 0; k < ilms.Len(); k++ {
 				ilm := ilms.At(k)
 				metrics := ilm.Metrics()
-				fmt.Printf("Name: %s, len: %d", ilm.InstrumentationLibrary().Name(), metrics.Len())
-				for l := 0; l < metrics.Len(); l++ {
-					metric := metrics.At(l)
-					fmt.Printf("Metric#%d Name:%s, DataType:%s\n",
-						l,
-						metric.Name(),
-						metric.DataType())
+
+				metrics.RemoveIf(func(metric pdata.Metric) bool {
 					if metric.DataType() == pdata.MetricDataTypeSum {
 						dps := metric.Sum().DataPoints()
-						if dps.Len() < 1 {
-							continue
-						}
 
-						for m := 0; m < dps.Len(); m++ {
-							dp := dps.At(m)
+						processor.logger.Debug(fmt.Sprintf("DPS length before RemoveIf: %d\n", dps.Len()))
+						dps.RemoveIf(func(dp pdata.NumberDataPoint) bool {
+							appId, ok := dp.Attributes().Get("appId")
+							if !ok || !processor.shouldIncludeAppId(appId.AsString()) {
+								processor.logger.Debug(fmt.Sprintf("Dropping metric for appID :%s\n", appId.AsString()))
+								return true
+							}
 
 							notation, notationHash := processor.buildMetricNotation(metric.Name(), dp)
 
 							// Only append zero value datapoint if notation combination appears for the first time
 							if processor.isFirstInstanceOfMetricNotation(notationHash) {
-								fmt.Printf("Storing notation :%s: with hash :%s: in seen map\n", notation, notationHash)
+								processor.logger.Debug(fmt.Sprintf("Storing notation :%s: with hash :%s: in seen map\n", notation, notationHash))
 
 								err := processor.dbClient.Set([]byte(notationHash), []byte("1"), pebble.NoSync)
 								if err != nil {
 									processor.logger.Error("error writing key to dbClient",
 										zap.String("key", notationHash), zap.Error(err))
 								}
-								dp.SetDoubleVal(float64(0))
-								dp.SetIntVal(0)
+								if processor.config.ZeroInitialisation {
+									dp.SetDoubleVal(float64(0))
+									dp.SetIntVal(0)
+								}
 							}
-						}
+							return false
+						})
+
+						processor.logger.Debug(fmt.Sprintf("DPS length after RemoveIf: %d\n", dps.Len()))
+						return dps.Len() == 0
 					}
-				}
+
+					return true
+				})
 			}
 		}
 	}
 
 	elapsed := time.Since(startTime)
-	fmt.Printf("Processing metrics took %s", elapsed)
+	processor.logger.Debug(fmt.Sprintf("Processing metrics took %s\n", elapsed))
 
-	processor.logger.Info("Memory Usage after processing metrics\n")
-	runtime.ReadMemStats(&after)
-	PrintMemUsage(before, after)
 	return md, nil
 }
 
 func (processor *seedingMetricsProcessor) Capabilities() consumer.Capabilities {
 	return consumer.Capabilities{MutatesData: true}
+}
+
+func (processor *seedingMetricsProcessor) shouldIncludeAppId(appId string) bool {
+	if len(processor.targetAppIdsMap) > 0 {
+		return processor.targetAppIdsMap[appId]
+	}
+
+	if len(processor.ignoredAppIdsMap) > 0 {
+		return !processor.ignoredAppIdsMap[appId]
+	}
+
+	return true
 }
 
 // We can make it configurable in the future, if required.
@@ -144,7 +167,7 @@ func (processor *seedingMetricsProcessor) buildMetricNotation(metricName string,
 	pairs = append(pairs, "metricName="+metricName)
 	rawAttributes := dp.Attributes().AsRaw()
 
-	for key, _ := range rawAttributes {
+	for key := range rawAttributes {
 		keys = append(keys, key)
 	}
 
@@ -163,7 +186,7 @@ func (processor *seedingMetricsProcessor) buildMetricNotation(metricName string,
 func (processor *seedingMetricsProcessor) isFirstInstanceOfMetricNotation(notationHash string) bool {
 	_, closer, dbClientGetErr := processor.dbClient.Get([]byte(notationHash))
 	if dbClientGetErr == pebble.ErrNotFound {
-		processor.logger.Info("Key not found in cache.", zap.String("key", notationHash))
+		processor.logger.Debug("Key not found in cache.", zap.String("key", notationHash))
 		return true
 	}
 
@@ -171,7 +194,7 @@ func (processor *seedingMetricsProcessor) isFirstInstanceOfMetricNotation(notati
 		processor.logger.Error("Error closing the reader", zap.Error(err))
 	}
 
-	processor.logger.Info("Successful cache hit.", zap.String("key", notationHash))
+	processor.logger.Debug("Successful cache hit.", zap.String("key", notationHash))
 	return false
 }
 

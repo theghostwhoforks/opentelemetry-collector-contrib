@@ -16,6 +16,7 @@ package seedingmetricsprocessor
 
 import (
 	"context"
+
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config"
 	"go.opentelemetry.io/collector/consumer"
@@ -36,13 +37,12 @@ func NewFactory() component.ProcessorFactory {
 	)
 }
 
-type Config struct {
-	config.ProcessorSettings `mapstructure:",squash"`
-}
-
 func createDefaultConfig() config.Processor {
 	return &Config{
-		ProcessorSettings: config.NewProcessorSettings(config.NewComponentID(typeStr)),
+		DbFileName: "dbfile",
+		ZeroInitialisation: true,
+		TargetAppIds: []string{},
+		IgnoredAppIds: []string{},
 	}
 }
 
