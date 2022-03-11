@@ -50,11 +50,14 @@ func (mtp *metricsTransformProcessor) groupTimeseriesByLabelSet(timeseries []*me
 	groupedTimeseries := make(map[string]*timeseriesAndLabelValues)
 	for _, timeseries := range timeseries {
 		key, newLabelValues := mtp.selectedLabelsAsKey(labelIdxs, timeseries)
+		// Comment out this if block so that same labels with different
+		// StartTimestamp can also be grouped.
 		if timeseries.StartTimestamp != nil {
 			key += strconv.FormatInt(timeseries.StartTimestamp.Seconds, 10)
 		}
-
+		
 		timeseriesGroup, ok := groupedTimeseries[key]
+		fmt.Printf("===> key: %s, isOk? %v\n", key, ok)
 		if ok {
 			timeseriesGroup.timeseries = append(timeseriesGroup.timeseries, timeseries)
 		} else {
@@ -64,6 +67,7 @@ func (mtp *metricsTransformProcessor) groupTimeseriesByLabelSet(timeseries []*me
 			}
 		}
 	}
+	fmt.Printf("!!!!! Grouped timeseries length: %d\n", len(groupedTimeseries))
 	return groupedTimeseries
 }
 
